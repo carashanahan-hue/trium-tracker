@@ -29,27 +29,26 @@ function engType(props) {
   return "Activity";
 }
 
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 async function searchContact(token, name) {
   const parts = name.trim().split(" ");
   const firstName = parts[0];
   const lastName = parts.slice(1).join(" ");
 
   const props = ["firstname","lastname","jobtitle","company",
-    "notes_last_contacted","notes_last_activity_date"].join(",");
+    "notes_last_contacted","notes_last_activity_date"];
 
   const body = {
     filterGroups: [{
-      filters: [{
-        propertyName: "lastname",
-        operator: "EQ",
-        value: lastName
-      }, {
-        propertyName: "firstname",
-        operator: "EQ",
-        value: firstName
-      }]
+      filters: [
+        { propertyName: "lastname", operator: "EQ", value: lastName },
+        { propertyName: "firstname", operator: "EQ", value: firstName }
+      ]
     }],
-    properties: props.split(","),
+    properties: props,
     limit: 1
   };
 
@@ -81,7 +80,6 @@ async function getLastEngagement(token, contactId) {
   }
 }
 
-// All BD and L1 contact names to look up
 const TARGET_NAMES = [
   "Dana Bishara","Melanie Rosenwasser","Virginia Graham","Ritambhara Kumar",
   "Arturo Poire","Samantha Hammock","Lauren Cipicchio","Noah Glass",
@@ -111,25 +109,30 @@ exports.handler = async function(event) {
   }
 
   try {
-    // Search for each target contact by name
-    const results = await Promise.all(
-      TARGET_NAMES.map(async (name) => {
-        const contact = await searchContact(token, name);
-        if (!contact) return { name, found: false };
+    const results = [];
 
-        const lastEngagement = await getLastEngagement(token, contact.id);
-
-        return {
-          name,
-          found: true,
-          title: contact.properties.jobtitle || null,
-          company: contact.properties.company || null,
-          lastContacted: formatDate(contact.properties.notes_last_contacted),
-          lastActivity: formatDate(contact.properties.notes_last_activity_date),
-          lastEngagement
-        };
-      })
-    );
+    // Process in batches of 5 with 300ms delay to avoid rate limiting
+    for (let i = 0; i < TARGET_NAMES.length; i += 5) {
+      const batch = TARGET_NAMES.slice(i, i + 5);
+      const batchResults = await Promise.all(
+        batch.map(async (name) => {
+          const contact = await searchContact(token, name);
+          if (!contact) return { name, found: false };
+          const lastEngagement = await getLastEngagement(token, contact.id);
+          return {
+            name,
+            found: true,
+            title: contact.properties.jobtitle || null,
+            company: contact.properties.company || null,
+            lastContacted: formatDate(contact.properties.notes_last_contacted),
+            lastActivity: formatDate(contact.properties.notes_last_activity_date),
+            lastEngagement
+          };
+        })
+      );
+      results.push(...batchResults);
+      if (i + 5 < TARGET_NAMES.length) await sleep(300);
+    }
 
     return {
       statusCode: 200,
