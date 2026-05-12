@@ -548,22 +548,16 @@ export default function PodTracker() {
 
       if (data.error) throw new Error(data.error);
 
-      const hsContacts = data.contacts || [];
+      // New format: contacts is an array keyed by name
+      const hsMap = {};
+      for (const c of (data.contacts || [])) {
+        if (c.found) hsMap[c.name] = c;
+      }
 
-      // Match HubSpot contacts to our BD contact list by name or company
+      // Build BD enrichment map
       const newMap = {};
       for (const contact of bdContacts) {
-        // Try to find a matching HubSpot contact
-        const match = hsContacts.find(hc => {
-          const hsName = (hc.name || "").toLowerCase();
-          const localName = contact.name.toLowerCase();
-          const hsCompany = (hc.company || "").toLowerCase();
-          const localCompany = (contact.company || "").toLowerCase();
-          return hsName === localName ||
-            (hsName.includes(localName.split(" ")[0].toLowerCase()) && hsCompany.includes(localCompany.split(" ")[0].toLowerCase()));
-        });
-
-        // Use static enrichment as base, overlay HubSpot last interaction if found
+        const match = hsMap[contact.name];
         const staticData = ENRICHMENT_DATA[contact.name] || {
           lastInteraction: null,
           currentRole: { title: contact.title, company: contact.company, startDate: null },
@@ -576,7 +570,7 @@ export default function PodTracker() {
           newMap[contact.name] = {
             ...staticData,
             lastInteraction: eng ? {
-              date: eng.date || match.lastContacted || match.lastActivity,
+              date: eng.date,
               type: eng.type || "Activity",
               summary: eng.summary || "No details logged.",
               owner: null
@@ -604,24 +598,16 @@ export default function PodTracker() {
         });
       }
 
-      // Also match Level 1 contacts
+      // Build L1 enrichment map
       const newL1Map = {};
       for (const contact of l1Contacts) {
-        const match = hsContacts.find(hc => {
-          const hsName = (hc.name || "").toLowerCase();
-          const localName = contact.name.toLowerCase();
-          const hsCompany = (hc.company || "").toLowerCase();
-          const localCompany = (contact.company || "").toLowerCase();
-          return hsName === localName ||
-            (hsName.includes(localName.split(" ")[0].toLowerCase()) &&
-             hsCompany.includes(localCompany.split(" ")[0].toLowerCase()));
-        });
+        const match = hsMap[contact.name];
         if (match) {
           const eng = match.lastEngagement;
           newL1Map[contact.name] = {
             lastInteraction: eng ? {
               type: eng.type,
-              date: eng.date || match.lastContacted,
+              date: eng.date,
               summary: eng.summary || null
             } : match.lastContacted ? {
               type: "Activity",
