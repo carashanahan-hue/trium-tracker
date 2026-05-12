@@ -619,6 +619,7 @@ export default function PodTracker() {
           };
         }
       }
+      setEnrichmentMap(newMap);
       setL1EnrichmentMap(newL1Map);
     } catch (err) {
       console.error("HubSpot fetch failed:", err);
