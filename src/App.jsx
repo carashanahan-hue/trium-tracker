@@ -543,7 +543,7 @@ export default function PodTracker() {
 
     try {
       // Pull live data from HubSpot via Netlify function
-      const res = await fetch("/api/hubspot");
+      const res = await fetch("/.netlify/functions/hubspot");
       const data = await res.json();
 
       if (data.error) throw new Error(data.error);
