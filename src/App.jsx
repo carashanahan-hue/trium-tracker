@@ -34,12 +34,20 @@ function StaleBadge({ days }) {
   return <span style={{ fontFamily:"'Arial',sans-serif", fontSize:9, fontWeight:700, letterSpacing:"0.08em", textTransform:"uppercase", padding:"3px 9px", background:bg, color, borderRadius:2 }}>{label}</span>;
 }
 
-function AlertCard({ type, title, body }) {
+function AlertCard({ type, title, body, bullets }) {
   const s = { red:["#FDF4F2","#F5642E","#F5642E","#634E42"], amber:["#FDF8EE","#FFA500","#8A6000","#634E42"], green:["#F4F8F6","#A6C1B5","#3A6652","#3A6652"] }[type];
   return (
     <div style={{ borderLeft:`3px solid ${s[1]}`, background:s[0], padding:"14px 20px", marginBottom:10 }}>
-      <div style={{ fontFamily:"'Arial',sans-serif", fontSize:11, fontWeight:700, letterSpacing:"0.04em", color:s[2], marginBottom:4 }}>{title}</div>
-      <div style={{ fontFamily:"'Georgia',serif", fontSize:13, color:s[3], lineHeight:1.65 }}>{body}</div>
+      <div style={{ fontFamily:"'Arial',sans-serif", fontSize:11, fontWeight:700, letterSpacing:"0.04em", color:s[2], marginBottom:6 }}>{title}</div>
+      {bullets ? (
+        <ul style={{ margin:0, paddingLeft:18 }}>
+          {bullets.map((b,i) => (
+            <li key={i} style={{ fontFamily:"'Georgia',serif", fontSize:13, color:s[3], lineHeight:1.65, marginBottom:2 }}>{b}</li>
+          ))}
+        </ul>
+      ) : (
+        <div style={{ fontFamily:"'Georgia',serif", fontSize:13, color:s[3], lineHeight:1.65 }}>{body}</div>
+      )}
     </div>
   );
 }
@@ -372,7 +380,7 @@ function PartnerPanel({ projects, stats, alert }) {
         <StatBox val={stats[1].val} label={stats[1].label} warn />
         <StatBox val={stats[2].val} label={stats[2].label} />
       </div>
-      <AlertCard type="red" title={alert.title} body={alert.body} />
+      <AlertCard type="red" title={alert.title} body={alert.body} bullets={alert.bullets} />
       <div style={{ fontFamily:"'Arial',sans-serif", fontSize:10, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", color:T.blueGray, margin:"20px 0 8px" }}>All projects</div>
       {projects.map((p,i)=><ProjRow key={i} {...p} />)}
     </div>
@@ -725,9 +733,24 @@ export default function PodTracker() {
               <Metric label="2026 Revenue Booked" value="$5.36M" sub="Laurel H2 just closed — $495K" accent={T.blueGray} />
             </div>
 
-            <AlertCard type="red" title="Immediate BD action required — Q2 cliff" body="10 contracts ending by June 30. Airtable $478K renewal in traction but not closed. McDonald's GCS $300K H2 extension in scoping — accelerate. Sikorsky $150K Next Level Leadership ($250K) in scoping. Gap IndigoX H2 proposal ($275K) and NewEdge cohesion ($280K) both need to close now." />
-            <AlertCard type="amber" title="Watch — Q3 2026" body="Lockheed Aero ELT ($385K), Visa LEAD ($110K), Coates Group ($220K), NewEdge coaching ($55K), Old Navy LT, and Old Navy Design & Merch all ending Q3. Start conversations by June. Lockheed Space follow-on ($425K) in proposal — close now." />
-            <AlertCard type="green" title="New win + stable anchors" body="Laurel H2 just closed ($495K, May–Dec 2026) — great momentum for Meredith. Russell Reynolds runs through Q1 2027 ($1.04M). Amentum ~$525K and GetYourGuide $250K anchor H2. Airtable H2 renewal ($468K) is next to close." />
+            <AlertCard type="red" title="Immediate BD action required — Q2 cliff" bullets={[
+              "10 contracts ending by June 30 — already in the 2-month BD window.",
+              "Airtable $478K renewal in traction but not closed.",
+              "McDonald's GCS $300K H2 extension in scoping — accelerate.",
+              "Sikorsky $150K Next Level Leadership ($250K) in scoping.",
+              "Gap IndigoX H2 proposal ($275K) and NewEdge cohesion ($280K) both need to close now.",
+            ]} />
+            <AlertCard type="amber" title="Watch — Q3 2026" bullets={[
+              "Lockheed Aero ELT ($385K), Visa LEAD ($110K), Coates Group ($220K), and NewEdge coaching ($55K) all ending Q3.",
+              "Old Navy LT and Old Navy Design & Merch also ending Q3 — start conversations by June.",
+              "Lockheed Space follow-on ($425K) in proposal — close now.",
+            ]} />
+            <AlertCard type="green" title="New win + stable anchors" bullets={[
+              "Laurel H2 just closed ($495K, May–Dec 2026) — great momentum for Meredith.",
+              "Russell Reynolds runs through Q1 2027 ($1.04M).",
+              "Amentum ~$525K and GetYourGuide $250K anchor H2.",
+              "Airtable H2 renewal ($468K) is next to close.",
+            ]} />
 
             <div style={{ borderTop:`1px solid ${T.border}`, marginTop:28, paddingTop:24 }}>
               <div style={{ fontFamily:"'Arial',sans-serif", fontSize:10, fontWeight:700, letterSpacing:"0.12em", textTransform:"uppercase", color:T.blueGray, marginBottom:12 }}>Project end dates by partner</div>
@@ -739,15 +762,15 @@ export default function PodTracker() {
 
               {partnerTab==="mwc" && <PartnerPanel projects={mwcProjects}
                 stats={[{val:"11",label:"Active projects"},{val:"3",label:"Ending Q2"},{val:"$889K",label:"Q2 at risk"}]}
-                alert={{title:"Meredith — Q2 cliff: act now",body:"Airtable ($478K), Laurel H1 ($385K), and KIVA ($26K) end by June 30. Airtable H2 renewal ($468K) in traction — needs to close. Laurel H2 ($495K) just closed. Next: push Airtable renewal, FlixBus ($100K), and Frazier Healthcare ($45K) across the line."}} />}
+                alert={{title:"Meredith — Q2 cliff: act now",bullets:["Airtable ($478K), Laurel H1 ($385K), and KIVA ($26K) end by June 30.","Airtable H2 renewal ($468K) in traction — needs to close.","Laurel H2 ($495K) just closed — great momentum.","Next: push Airtable renewal, FlixBus ($100K), and Frazier Healthcare ($45K) across the line."]}} />}
 
               {partnerTab==="at" && <PartnerPanel projects={atProjects}
                 stats={[{val:"15",label:"Active projects"},{val:"7",label:"Ending by Q2"},{val:"~$643K",label:"Q2 at risk"}]}
-                alert={{title:"Annette — Q2 cliff: act now",body:"Buck ended Q1 with no follow-on. McDonald's GCS ($300K), Sikorsky ($150K), Autodesk ($20K), Mission Produce ($26K), Athleta ($19K), and IndigoX ($28K) all end Q2. Generate Bio follow-on ($660K) and NewEdge cohesion ($280K) in pipeline — close both now. Gap pipeline ($82K KBL + $275K IndigoX H2 + others) is rich."}} />}
+                alert={{title:"Annette — Q2 cliff: act now",bullets:["Buck ended Q1 with no follow-on.","McDonald's GCS ($300K), Sikorsky ($150K), Autodesk ($20K), Mission Produce ($26K), Athleta ($19K), and IndigoX ($28K) all end Q2.","Generate Bio follow-on ($660K) and NewEdge cohesion ($280K) in pipeline — close both now.","Gap pipeline ($82K KBL + $275K IndigoX H2 + others) is rich."]}} />}
 
               {partnerTab==="ww" && <PartnerPanel projects={wwProjects}
                 stats={[{val:"8",label:"Active projects"},{val:"2",label:"Ending Q2"},{val:"$450K",label:"Q2 at risk"}]}
-                alert={{title:"William — Q2 cliff: act now",body:"Sikorsky SLT ($150K) and McDonald's GCS ($300K) end Q2. Sikorsky Next Level Leadership ($250K) and F-35 Collaboration ($125K) in scoping — critical to close. McDonald's GCS H2 extension ($375K+$185K) in scoping. Relias full engagement ($550K) and Eli Lilly ($100K) also in pipeline."}} />}
+                alert={{title:"William — Q2 cliff: act now",bullets:["Sikorsky SLT ($150K) and McDonald's GCS ($300K) end Q2.","Sikorsky Next Level Leadership ($250K) and F-35 Collaboration ($125K) in scoping — critical to close.","McDonald's GCS H2 extension ($375K+$185K) in scoping.","Relias full engagement ($550K) and Eli Lilly ($100K) also in pipeline."]}} />}
             </div>
           </div>
         )}
