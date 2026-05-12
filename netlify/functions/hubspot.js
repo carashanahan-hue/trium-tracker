@@ -95,5 +95,5 @@ exports.handler = async function(event) {
 
   } catch (err) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
-  }
+  } 
 };
