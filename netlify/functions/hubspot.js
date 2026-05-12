@@ -1,146 +1,99 @@
 const HUBSPOT_BASE = "https://api.hubapi.com";
 
-async function hs(token, path, options = {}) {
+async function hs(token, path) {
   const res = await fetch(`${HUBSPOT_BASE}${path}`, {
-    ...options,
     headers: {
       "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {})
+      "Content-Type": "application/json"
     }
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HubSpot API error ${res.status}: ${text}`);
-  }
+  if (!res.ok) throw new Error(`HubSpot ${res.status}: ${await res.text()}`);
   return res.json();
-}
-
-async function getContacts(token) {
-  const props = [
-    "firstname","lastname","email","jobtitle","company",
-    "hs_lead_status","hubspot_owner_id","notes_last_contacted",
-    "notes_last_activity_date","phone","lifecyclestage"
-  ].join(",");
-
-  const data = await hs(token, `/crm/v3/objects/contacts?limit=100&properties=${props}`);
-  return data.results || [];
-}
-
-async function getLastEngagement(token, contactId) {
-  try {
-    const assoc = await hs(token,
-      `/crm/v4/objects/contacts/${contactId}/associations/engagements?limit=5`
-    );
-    const ids = (assoc.results || []).map(r => r.toObjectId);
-    if (!ids.length) return null;
-
-    // Fetch the most recent engagement
-    const engProps = ["hs_engagement_type","hs_activity_type","hs_body_preview",
-                      "hs_createdate","hs_timestamp","hubspot_owner_id"].join(",");
-    const eng = await hs(token,
-      `/crm/v3/objects/engagements/${ids[0]}?properties=${engProps}`
-    );
-    return eng.properties || null;
-  } catch {
-    return null;
-  }
-}
-
-async function getDeals(token) {
-  const props = [
-    "dealname","amount","dealstage","closedate",
-    "hubspot_owner_id","pipeline","hs_deal_stage_probability"
-  ].join(",");
-
-  const data = await hs(token, `/crm/v3/objects/deals?limit=100&properties=${props}`);
-  return data.results || [];
 }
 
 function formatDate(ts) {
   if (!ts) return null;
-  const d = new Date(parseInt(ts) || ts);
+  const d = new Date(isNaN(ts) ? ts : parseInt(ts));
+  if (d.getFullYear() < 2000) return null; // filter out epoch/bad dates
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function engagementType(props) {
+function engType(props) {
   const t = (props.hs_engagement_type || props.hs_activity_type || "").toLowerCase();
   if (t.includes("email")) return "Email";
   if (t.includes("call")) return "Call";
   if (t.includes("meeting")) return "Meeting";
   if (t.includes("note")) return "Note";
-  if (t.includes("linkedin")) return "LinkedIn";
   return "Activity";
 }
 
-export default async (req) => {
-  const corsHeaders = {
+exports.handler = async function(event) {
+  const headers = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
     "Content-Type": "application/json"
   };
 
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders });
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 204, headers, body: "" };
   }
 
   const token = process.env.HUBSPOT_TOKEN;
   if (!token) {
-    return new Response(JSON.stringify({ error: "HUBSPOT_TOKEN not configured" }), {
-      status: 500, headers: corsHeaders
-    });
+    return { statusCode: 500, headers, body: JSON.stringify({ error: "HUBSPOT_TOKEN not set" }) };
   }
 
   try {
-    const [contacts, deals] = await Promise.all([
-      getContacts(token),
-      getDeals(token)
-    ]);
+    const props = ["firstname","lastname","email","jobtitle","company",
+      "notes_last_contacted","notes_last_activity_date"].join(",");
 
-    // Enrich a sample of contacts with last engagement (limit to avoid timeouts)
+    // Paginate through all contacts (up to 500)
+    let contacts = [];
+    let after = null;
+    for (let i = 0; i < 5; i++) {
+      const url = `/crm/v3/objects/contacts?limit=100&properties=${props}${after ? `&after=${after}` : ""}`;
+      const page = await hs(token, url);
+      contacts = contacts.concat(page.results || []);
+      if (!page.paging || !page.paging.next || !page.paging.next.after) break;
+      after = page.paging.next.after;
+    }
+
+    // For each contact, try to get their last engagement
     const enriched = await Promise.all(
-      contacts.slice(0, 50).map(async (c) => {
-        const eng = await getLastEngagement(token, c.id);
+      contacts.map(async (c) => {
+        let lastEngagement = null;
+        try {
+          const assoc = await hs(token, `/crm/v4/objects/contacts/${c.id}/associations/engagements?limit=3`);
+          const ids = (assoc.results || []).map(r => r.toObjectId);
+          if (ids.length) {
+            const engProps = ["hs_engagement_type","hs_activity_type","hs_body_preview","hs_timestamp","hs_createdate"].join(",");
+            const eng = await hs(token, `/crm/v3/objects/engagements/${ids[0]}?properties=${engProps}`);
+            lastEngagement = {
+              type: engType(eng.properties),
+              date: formatDate(eng.properties.hs_timestamp || eng.properties.hs_createdate),
+              summary: eng.properties.hs_body_preview || null
+            };
+          }
+        } catch {}
+
         return {
           id: c.id,
           name: `${c.properties.firstname || ""} ${c.properties.lastname || ""}`.trim(),
-          email: c.properties.email,
-          title: c.properties.jobtitle,
-          company: c.properties.company,
-          lifecycleStage: c.properties.lifecyclestage,
-          leadStatus: c.properties.hs_lead_status,
+          title: c.properties.jobtitle || null,
+          company: c.properties.company || null,
           lastContacted: formatDate(c.properties.notes_last_contacted),
           lastActivity: formatDate(c.properties.notes_last_activity_date),
-          lastEngagement: eng ? {
-            type: engagementType(eng),
-            date: formatDate(eng.hs_timestamp || eng.hs_createdate),
-            summary: eng.hs_body_preview || null
-          } : null
+          lastEngagement
         };
       })
     );
 
-    const formattedDeals = deals.map(d => ({
-      id: d.id,
-      name: d.properties.dealname,
-      amount: d.properties.amount ? `$${parseInt(d.properties.amount).toLocaleString()}` : null,
-      stage: d.properties.dealstage,
-      closeDate: d.properties.closedate,
-      probability: d.properties.hs_deal_stage_probability
-    }));
-
-    return new Response(JSON.stringify({
-      contacts: enriched,
-      deals: formattedDeals,
-      fetchedAt: new Date().toISOString()
-    }), { status: 200, headers: corsHeaders });
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ contacts: enriched, fetchedAt: new Date().toISOString() })
+    };
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500, headers: corsHeaders
-    });
+    return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
 };
-
-export const config = { path: "/api/hubspot" };
