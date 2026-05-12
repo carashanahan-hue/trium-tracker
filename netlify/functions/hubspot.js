@@ -1,10 +1,12 @@
 const HUBSPOT_BASE = "https://api.hubapi.com";
 
-async function hs(token, path) {
+async function hs(token, path, options = {}) {
   const res = await fetch(`${HUBSPOT_BASE}${path}`, {
+    ...options,
     headers: {
       "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...(options.headers || {})
     }
   });
   if (!res.ok) throw new Error(`HubSpot ${res.status}: ${await res.text()}`);
@@ -14,7 +16,7 @@ async function hs(token, path) {
 function formatDate(ts) {
   if (!ts) return null;
   const d = new Date(isNaN(ts) ? ts : parseInt(ts));
-  if (d.getFullYear() < 2000) return null; // filter out epoch/bad dates
+  if (d.getFullYear() < 2000) return null;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
@@ -26,6 +28,72 @@ function engType(props) {
   if (t.includes("note")) return "Note";
   return "Activity";
 }
+
+async function searchContact(token, name) {
+  const parts = name.trim().split(" ");
+  const firstName = parts[0];
+  const lastName = parts.slice(1).join(" ");
+
+  const props = ["firstname","lastname","jobtitle","company",
+    "notes_last_contacted","notes_last_activity_date"].join(",");
+
+  const body = {
+    filterGroups: [{
+      filters: [{
+        propertyName: "lastname",
+        operator: "EQ",
+        value: lastName
+      }, {
+        propertyName: "firstname",
+        operator: "EQ",
+        value: firstName
+      }]
+    }],
+    properties: props.split(","),
+    limit: 1
+  };
+
+  try {
+    const data = await hs(token, "/crm/v3/objects/contacts/search", {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+    return (data.results || [])[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getLastEngagement(token, contactId) {
+  try {
+    const assoc = await hs(token, `/crm/v4/objects/contacts/${contactId}/associations/engagements?limit=3`);
+    const ids = (assoc.results || []).map(r => r.toObjectId);
+    if (!ids.length) return null;
+    const engProps = ["hs_engagement_type","hs_activity_type","hs_body_preview","hs_timestamp","hs_createdate"].join(",");
+    const eng = await hs(token, `/crm/v3/objects/engagements/${ids[0]}?properties=${engProps}`);
+    return {
+      type: engType(eng.properties),
+      date: formatDate(eng.properties.hs_timestamp || eng.properties.hs_createdate),
+      summary: eng.properties.hs_body_preview || null
+    };
+  } catch {
+    return null;
+  }
+}
+
+// All BD and L1 contact names to look up
+const TARGET_NAMES = [
+  "Dana Bishara","Melanie Rosenwasser","Virginia Graham","Ritambhara Kumar",
+  "Arturo Poire","Samantha Hammock","Lauren Cipicchio","Noah Glass",
+  "Katie Childers","Candice Chafey","Martin Toha","Noel Moore",
+  "Jeannette Gessler","Calen Holbrooks","Juan de Antonio","Sundeep Peechu",
+  "Ann Wessing","Ade Patton","Aditya Joshi","Nikki Pechet","Vidya Peters",
+  "Sharbani Roy","Tazeen Chaudhry","Jeremy Benedict","Kasmira Pawa",
+  "Vasily Starostenko","Derek Ingalls","Chris Burrell","Kurt Petersen",
+  "Stacie Thomas","Anna Lyons","Fabiola Torres","Theo Agepoulos",
+  "Walter Dopplmair","Jane Lauder","Monica McManus","Stephanie Asendorf",
+  "John Heyliger"
+];
 
 exports.handler = async function(event) {
   const headers = {
@@ -43,45 +111,21 @@ exports.handler = async function(event) {
   }
 
   try {
-    const props = ["firstname","lastname","email","jobtitle","company",
-      "notes_last_contacted","notes_last_activity_date"].join(",");
+    // Search for each target contact by name
+    const results = await Promise.all(
+      TARGET_NAMES.map(async (name) => {
+        const contact = await searchContact(token, name);
+        if (!contact) return { name, found: false };
 
-    // Paginate through all contacts (up to 500)
-    let contacts = [];
-    let after = null;
-    for (let i = 0; i < 5; i++) {
-      const url = `/crm/v3/objects/contacts?limit=100&properties=${props}${after ? `&after=${after}` : ""}`;
-      const page = await hs(token, url);
-      contacts = contacts.concat(page.results || []);
-      if (!page.paging || !page.paging.next || !page.paging.next.after) break;
-      after = page.paging.next.after;
-    }
-
-    // For each contact, try to get their last engagement
-    const enriched = await Promise.all(
-      contacts.map(async (c) => {
-        let lastEngagement = null;
-        try {
-          const assoc = await hs(token, `/crm/v4/objects/contacts/${c.id}/associations/engagements?limit=3`);
-          const ids = (assoc.results || []).map(r => r.toObjectId);
-          if (ids.length) {
-            const engProps = ["hs_engagement_type","hs_activity_type","hs_body_preview","hs_timestamp","hs_createdate"].join(",");
-            const eng = await hs(token, `/crm/v3/objects/engagements/${ids[0]}?properties=${engProps}`);
-            lastEngagement = {
-              type: engType(eng.properties),
-              date: formatDate(eng.properties.hs_timestamp || eng.properties.hs_createdate),
-              summary: eng.properties.hs_body_preview || null
-            };
-          }
-        } catch {}
+        const lastEngagement = await getLastEngagement(token, contact.id);
 
         return {
-          id: c.id,
-          name: `${c.properties.firstname || ""} ${c.properties.lastname || ""}`.trim(),
-          title: c.properties.jobtitle || null,
-          company: c.properties.company || null,
-          lastContacted: formatDate(c.properties.notes_last_contacted),
-          lastActivity: formatDate(c.properties.notes_last_activity_date),
+          name,
+          found: true,
+          title: contact.properties.jobtitle || null,
+          company: contact.properties.company || null,
+          lastContacted: formatDate(contact.properties.notes_last_contacted),
+          lastActivity: formatDate(contact.properties.notes_last_activity_date),
           lastEngagement
         };
       })
@@ -90,10 +134,10 @@ exports.handler = async function(event) {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ contacts: enriched, fetchedAt: new Date().toISOString() })
+      body: JSON.stringify({ contacts: results, fetchedAt: new Date().toISOString() })
     };
 
   } catch (err) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
-  } 
+  }
 };
